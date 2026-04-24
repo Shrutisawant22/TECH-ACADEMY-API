@@ -1,3 +1,6 @@
+// ==========================
+// 📁 controllers/authController.js (ULTRA ADVANCED)
+// ==========================
 import User from "../models/userModel.js";
 import jwt from "jsonwebtoken";
 
@@ -8,8 +11,24 @@ const generateToken = (userId) => {
   return jwt.sign(
     { id: userId },
     process.env.JWT_SECRET,
-    { expiresIn: "7d" }
+    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
   );
+};
+
+// ==========================
+// 🍪 SEND TOKEN RESPONSE
+// ==========================
+const sendTokenResponse = (user, statusCode, res, message) => {
+  const token = generateToken(user._id);
+
+  res.status(statusCode).json({
+    status: "success",
+    message,
+    token,
+    data: {
+      user
+    }
+  });
 };
 
 // ==========================
@@ -37,7 +56,7 @@ export const register = async (req, res, next) => {
     }
 
     // ======================
-    // 🔍 CHECK USER EXISTS
+    // 🔍 CHECK EXISTING USER
     // ======================
     const existingUser = await User.findOne({ email });
 
@@ -57,19 +76,7 @@ export const register = async (req, res, next) => {
       password
     });
 
-    // ======================
-    // 🎟️ TOKEN
-    // ======================
-    const token = generateToken(user._id);
-
-    res.status(201).json({
-      status: "success",
-      message: "User registered successfully",
-      data: {
-        user,
-        token
-      }
-    });
+    sendTokenResponse(user, 201, res, "User registered successfully");
 
   } catch (error) {
     next(error);
@@ -77,7 +84,7 @@ export const register = async (req, res, next) => {
 };
 
 // ==========================
-// 🔐 LOGIN USER
+// 🔐 LOGIN USER (FINAL FIX)
 // ==========================
 export const login = async (req, res, next) => {
   try {
@@ -106,9 +113,26 @@ export const login = async (req, res, next) => {
     }
 
     // ======================
-    // 🔑 CHECK PASSWORD
+    // 🔐 SAFE PASSWORD CHECK
     // ======================
-    const isMatch = await user.comparePassword(password);
+    let isMatch = false;
+
+    // if hashed password
+    if (user.password && user.password.startsWith("$2")) {
+      const bcrypt = await import("bcryptjs");
+      isMatch = await bcrypt.default.compare(password, user.password);
+    } else {
+      // fallback (plain password case)
+      isMatch = password === user.password;
+
+      // auto-fix: hash password
+      if (isMatch) {
+        const bcrypt = await import("bcryptjs");
+        const salt = await bcrypt.default.genSalt(12);
+        user.password = await bcrypt.default.hash(password, salt);
+        await user.save();
+      }
+    }
 
     if (!isMatch) {
       return res.status(401).json({
@@ -118,20 +142,106 @@ export const login = async (req, res, next) => {
     }
 
     // ======================
-    // 🎟️ TOKEN
+    // 🧠 UPDATE LAST LOGIN
     // ======================
-    const token = generateToken(user._id);
+    user.lastLogin = new Date();
+    await user.save({ validateBeforeSave: false });
 
-    res.status(200).json({
-      status: "success",
-      message: "Login successful",
-      data: {
-        user,
-        token
-      }
-    });
+    // ======================
+    // 🎟️ RESPONSE
+    // ======================
+    sendTokenResponse(user, 200, res, "Login successful");
 
   } catch (error) {
     next(error);
   }
+};
+// ==========================
+// 👤 GET CURRENT USER
+// ==========================
+export const getMe = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    res.status(200).json({
+      status: "success",
+      data: user
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================
+// 🔄 UPDATE PROFILE
+// ==========================
+export const updateProfile = async (req, res, next) => {
+  try {
+    const updates = {
+      name: req.body.name,
+      avatar: req.body.avatar
+    };
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      updates,
+      {
+        new: true,
+        runValidators: true
+      }
+    );
+
+    res.status(200).json({
+      status: "success",
+      message: "Profile updated",
+      data: user
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================
+// 🔑 CHANGE PASSWORD
+// ==========================
+export const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        status: "fail",
+        message: "Both current and new password required"
+      });
+    }
+
+    const user = await User.findById(req.user.id).select("+password");
+
+    const isMatch = await user.comparePassword(currentPassword);
+
+    if (!isMatch) {
+      return res.status(400).json({
+        status: "fail",
+        message: "Current password incorrect"
+      });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    sendTokenResponse(user, 200, res, "Password updated successfully");
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================
+// 🚪 LOGOUT
+// ==========================
+export const logout = (req, res) => {
+  res.status(200).json({
+    status: "success",
+    message: "Logged out successfully"
+  });
 };
