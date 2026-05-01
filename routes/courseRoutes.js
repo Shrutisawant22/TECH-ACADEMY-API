@@ -13,7 +13,7 @@ const router = express.Router();
 // ==========================
 
 // Get all courses (Protected)
-router.get("/", protect, getCourses);
+router.get("/", getCourses);
 
 // Seed courses (Admin only)
 router.post("/seed", protect, authorize("admin"), seedCourses);
