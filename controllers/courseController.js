@@ -17,7 +17,7 @@ export const getCourses = async (req, res, next) => {
     // ======================
     // 🔍 FILTER OBJECT
     // ======================
-    let queryObj = { isPublished: true };
+    let queryObj = {};
 
     if (category) queryObj.category = category;
     if (level) queryObj.level = level;
